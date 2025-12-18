@@ -1,9 +1,9 @@
 # Author: Jimmy Wu
 # Date: October 2024
 
-from cameras import KinovaCamera, LogitechCamera
+from cameras import LogitechCamera
 from constants import BASE_RPC_HOST, BASE_RPC_PORT, ARM_RPC_HOST, ARM_RPC_PORT, RPC_AUTHKEY
-from constants import BASE_CAMERA_SERIAL
+from constants import BASE_CAMERA_SERIAL, WRIST_CAMERA_SERIAL
 from arm_server import ArmManager
 from base_server import BaseManager
 
@@ -29,7 +29,7 @@ class RealEnv:
 
         # Cameras
         self.base_camera = LogitechCamera(BASE_CAMERA_SERIAL)
-        self.wrist_camera = KinovaCamera()
+        self.wrist_camera = LogitechCamera(WRIST_CAMERA_SERIAL, focus=100)  # Need to set focus to 100 for fisheye lens attachment
 
     def get_obs(self):
         obs = {}
@@ -70,8 +70,8 @@ if __name__ == '__main__':
             for _ in range(100):
                 action = {
                     'base_pose': 0.1 * np.random.rand(3) - 0.05,
-                    'arm_pos': 0.1 * np.random.rand(3) + np.array([0.55, 0.0, 0.4]),
-                    'arm_quat': np.random.rand(4),
+                    'arm_pos': 0.05 * np.random.rand(3) + np.array([0.4, 0.0, 0.35]),
+                    'arm_quat': np.array([0.0, 0.0, 0.0, 1.0]),
                     'gripper_pos': np.random.rand(1),
                 }
                 env.step(action)

@@ -1,0 +1,24 @@
+<mujoco model="arx5_pd">
+  <include file="arx5.xml"/>
+
+  <default>
+    <default class="pd">
+      <position inheritrange="1"/>
+    </default>
+  </default>
+
+  <actuator>
+    <position class="pd" name="joint1" joint="joint1" kp="70" kv="7"/>
+    <position class="pd" name="joint2" joint="joint2" kp="70" kv="7"/>
+    <position class="pd" name="joint3" joint="joint3" kp="70" kv="7"/>
+    <position class="pd" name="joint4" joint="joint4" kp="30" kv="3"/>
+    <position class="pd" name="joint5" joint="joint5" kp="30" kv="3"/>
+    <position class="pd" name="joint6" joint="joint6" kp="20" kv="2"/>
+  </actuator>
+
+  <keyframe>
+    <key name="zero" qpos="0 0 0 0 0 0" ctrl="0 0 0 0 0 0"/>
+    <key name="home" qpos="0 1.047 1.047 0 0 0" ctrl="0 1.047 1.047 0 0 0"/>
+    <key name="mid" qpos="-0.261 1.57 1.57 0 0 0" ctrl="-0.261 1.57 1.57 0 0 0"/>
+  </keyframe>
+</mujoco>

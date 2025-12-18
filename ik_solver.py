@@ -15,18 +15,18 @@ MAX_ANGLE_CHANGE = np.deg2rad(45)
 class IKSolver:
     def __init__(self, ee_offset=0.0):
         # Load arm without gripper
-        self.model = mujoco.MjModel.from_xml_path('models/kinova_gen3/gen3.xml')
+        # self.model = mujoco.MjModel.from_xml_path('models/arx5/X5.xml')
+        self.model = mujoco.MjModel.from_xml_path('models/arx5/L5.xml')
         self.data = mujoco.MjData(self.model)
         self.model.body_gravcomp[:] = 1.0
 
         # Cache references
-        self.qpos0 = self.model.key('retract').qpos
         self.site_id = self.model.site('pinch_site').id
         self.site_pos = self.data.site(self.site_id).xpos
         self.site_mat = self.data.site(self.site_id).xmat
 
         # Add end effector offset for gripper
-        self.model.site(self.site_id).pos = np.array([0.0, 0.0, -0.061525 - ee_offset])  # 0.061525 comes from the Kinova URDF
+        self.model.site(self.site_id).pos = np.array([ee_offset, 0.0, 0.0])
 
         # Preallocate arrays
         self.err = np.empty(6)
@@ -66,8 +66,6 @@ class IKSolver:
             # Calculate update
             mujoco.mj_jacSite(self.model, self.data, self.jac_pos, self.jac_rot, self.site_id)
             update = self.jac.T @ np.linalg.solve(self.jac @ self.jac.T + self.damping, self.err)
-            qpos0_err = np.mod(self.qpos0 - self.data.qpos + np.pi, 2 * np.pi) - np.pi
-            update += (self.eye - (self.jac.T @ np.linalg.pinv(self.jac @ self.jac.T + self.damping)) @ self.jac) @ qpos0_err
 
             # Enforce max angle change
             update_max = np.abs(update).max()
@@ -80,16 +78,17 @@ class IKSolver:
         return self.data.qpos.copy()
 
 if __name__ == '__main__':
-    ik_solver = IKSolver()
-    home_pos, home_quat = np.array([0.456, 0.0, 0.434]), np.array([0.5, 0.5, 0.5, 0.5])
-    retract_qpos = np.deg2rad([0, -20, 180, -146, 0, -50, 90])
+    ik_solver = IKSolver(ee_offset=0.0)
+    # target_pos, target_quat = np.array([0.115, 0.001, 0.179]), np.array([0.0, 0.642, 0.0, 0.767])  # X5
+    target_pos, target_quat = np.array([0.117, 0.000, 0.182]), np.array([0.0, 0.643, 0.0, 0.765])  # L5
+    home_qpos = np.zeros(6)
 
     import time
     start_time = time.time()
     for _ in range(1000):
-        qpos = ik_solver.solve(home_pos, home_quat, retract_qpos)
+        qpos = ik_solver.solve(target_pos, target_quat, home_qpos)
     elapsed_time = time.time() - start_time
-    print(f'Time per call: {elapsed_time:.3f} ms')  # 0.59 ms
+    print(f'Time per call: {elapsed_time:.3f} ms')  # 0.17 ms
 
-    # Home: 0, 15, 180, -130, 0, 55, 90
-    print(np.rad2deg(ik_solver.solve(home_pos, home_quat, retract_qpos)).round())
+    # Target: 0, 50, 30, -60, 0, 0
+    print(np.rad2deg(ik_solver.solve(target_pos, target_quat, home_qpos)).round())

@@ -1,0 +1,38 @@
+<mujoco model="ultron_v1.1_aa">
+  <compiler angle="radian"/>
+
+  <option integrator="implicitfast"/>
+
+  <worldbody>
+    <body name="base_link">
+      <inertial pos="-2.9972e-05 3.056e-05 0.027301" quat="0.707107 0 0 0.707107" mass="0.44038" diaginertia="0.00018 0.00017 0.00016"/>
+      <body name="link1" pos="0 0 0.0603">
+        <inertial pos="0.0060953 -0.0042968 0.017959" quat="0.680193 0.680193 -0.193229 0.193229" mass="0.060835" diaginertia="8.61803e-05 6.38197e-05 3e-05"/>
+        <joint name="joint1" axis="0 0 1" range="-2.6180 3.1416"/>
+        <body name="link2" pos="0.02 0 0.0402">
+          <inertial pos="-0.13238 0.0022038 0.00011179" quat="0 0.706195 0 0.708017" mass="1.0733" diaginertia="0.0160201 0.01596 0.000499897"/>
+          <joint name="joint2" axis="0 1 0" range="0 3.6652"/>
+          <body name="link3" pos="-0.264 0 0" quat="-3.67321e-06 -1 0 0">
+            <inertial pos="0.1872 -0.00030568 -0.051483" quat="0.269626 0.618013 0.251786 0.694238" mass="0.4994" diaginertia="0.00388848 0.00385541 0.000286113"/>
+            <!-- <joint name="joint3" axis="0 1 0" range="0 3.1416"/> -->
+            <joint name="joint3" axis="0 1 0" range="0 2.9169"/>
+            <body name="link4" pos="0.245 0 -0.056">
+              <inertial pos="0.038888 0.0029517 -0.035328" quat="0.913916 -0.0752199 0.315785 -0.243679" mass="0.080971" diaginertia="0.000184798 0.000152076 5.31251e-05"/>
+              <joint name="joint4" axis="0 1 0" range="-1.5708 1.5708"/>
+              <body name="link5" pos="0.06575 -0.001 -0.0825">
+                <inertial pos="0.0028996 3.1583e-05 0.052619" quat="0.998829 0 -0.0483866 0" mass="0.60236" diaginertia="0.000724856 0.00069 0.000205144"/>
+                <joint name="joint5" axis="0 0 1" range="-1.5708 1.5708"/>
+                <body name="link6" pos="0.02845 0 0.0825" quat="-3.67321e-06 -1 0 0">
+                  <inertial pos="0.044806 4.61632e-05 -0.000190937" quat="0.485149 0.514422 -0.514422 0.485149" mass="0.581" diaginertia="0.000450586 0.00029 0.000279414"/>
+                  <joint name="joint6" axis="1 0 0" range="-1.5708 1.5708"/>
+                  <!-- From arx5-sdk/models/X5.urdf -->
+                  <site name="pinch_site" pos="0.145 0 0"/>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
