@@ -3,3 +3,17 @@ __pycache__
 .ipynb_checkpoints
 *.un~
 *.swp
+
+# Python environments
+.venv/
+venv/
+
+# RL checkpoints and experiment outputs
+rl/models/
+rl/logs/
+
+# Archived experimental scripts
+rl/archive/
+
+# Local simulator backups
+mujoco_env_backup.py

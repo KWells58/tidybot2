@@ -13,6 +13,7 @@ from threading import Thread
 import cv2 as cv
 import mujoco
 import mujoco.viewer
+import mujoco.gl_context
 import numpy as np
 from ruckig import InputParameter, OutputParameter, Result, Ruckig
 from constants import POLICY_CONTROL_PERIOD
@@ -20,7 +21,7 @@ from ik_solver import IKSolver
 
 class ShmState:
     def __init__(self, existing_instance=None):
-        arr = np.empty(3 + 3 + 4 + 1 + 1)
+        arr = np.empty(3 + 3 + 4 + 1 + 7 + 1)
         if existing_instance is None:
             self.shm = shared_memory.SharedMemory(create=True, size=arr.nbytes)
         else:
@@ -30,7 +31,8 @@ class ShmState:
         self.arm_pos = self.data[3:6]
         self.arm_quat = self.data[6:10]
         self.gripper_pos = self.data[10:11]
-        self.initialized = self.data[11:12]
+        self.arm_q = self.data[11:18]
+        self.initialized = self.data[18:19]
         self.initialized[:] = 0.0
 
     def close(self):
@@ -102,6 +104,7 @@ class BaseController:
         # OTG (online trajectory generation)
         num_dofs = 3
         self.last_command_time = None
+        self.timeout_count = 0
         self.otg = Ruckig(num_dofs, timestep)
         self.otg_inp = InputParameter(num_dofs)
         self.otg_out = OutputParameter(num_dofs)
@@ -131,7 +134,16 @@ class BaseController:
 
         # Maintain current pose if command stream is disrupted
         if time.time() - self.last_command_time > 2.5 * POLICY_CONTROL_PERIOD:
-            self.otg_inp.target_position = self.qpos
+            self.timeout_count += 1
+
+            if self.timeout_count <= 5:
+                print(
+                    f"[ARM TIMEOUT] Count: {self.timeout_count} | "
+                    f"Elapsed: {time.time() - self.last_command_time:.3f}s",
+                    flush=True,
+                )
+
+            self.otg_inp.target_position = self.otg_out.new_position
             self.otg_res = Result.Working
 
         # Update OTG
@@ -163,7 +175,11 @@ class ArmController:
 
     def reset(self):
         # Initialize arm in "retract" configuration
-        self.qpos[:] = np.array([0.0, -0.34906585, 3.14159265, -2.54818071, 0.0, -0.87266463, 1.57079633])
+        self.qpos[:] = np.array([
+    0, -0.34906585, 3.14159265,
+    -2.0, 0, -0.87266463,
+    1.57079633
+])
         self.ctrl[:] = self.qpos
         self.ctrl_gripper[:] = 0.0
 
@@ -203,11 +219,14 @@ class ArmController:
             self.ctrl[:] = self.otg_out.new_position
 
 class MujocoSim:
-    def __init__(self, mjcf_path, command_queue, shm_state, show_viewer=True):
+    def __init__(self, mjcf_path, command_queue, shm_state,
+             show_viewer=True, sync_mode=False, response_queue=None):
         self.model = mujoco.MjModel.from_xml_path(mjcf_path)
         self.data = mujoco.MjData(self.model)
         self.command_queue = command_queue
         self.show_viewer = show_viewer
+        self.sync_mode = sync_mode
+        self.response_queue = response_queue
 
         # Enable gravity compensation for everything except objects
         self.model.body_gravcomp[:] = 1.0
@@ -223,6 +242,7 @@ class MujocoSim:
         qvel_base = self.data.qvel[:base_dofs]
         ctrl_base = self.data.ctrl[:base_dofs]
         qpos_arm = self.data.qpos[base_dofs:(base_dofs + arm_dofs)]
+        self.qpos_arm = qpos_arm
         qvel_arm = self.data.qvel[base_dofs:(base_dofs + arm_dofs)]
         ctrl_arm = self.data.ctrl[base_dofs:(base_dofs + arm_dofs)]
         self.qpos_gripper = self.data.qpos[(base_dofs + arm_dofs):(base_dofs + arm_dofs + 1)]
@@ -293,29 +313,70 @@ class MujocoSim:
 
         # Update gripper pos
         self.shm_state.gripper_pos[:] = self.qpos_gripper / 0.8  # right_driver_joint, joint range [0, 0.8]
+        self.shm_state.arm_q[:] = self.qpos_arm  # Arm joint angles
 
         # Notify reset() function that state has been initialized
         self.shm_state.initialized[:] = 1.0
 
+
     def launch(self):
-        if self.show_viewer:
-            mujoco.viewer.launch(self.model, self.data, show_left_ui=False, show_right_ui=False)
+        if self.sync_mode:
+            # Wait for explicit commands from the RL environment.
+            while True:
+                request = self.command_queue.get()
+
+                if request["type"] == "reset":
+                    self.reset()
+                    mujoco.mj_forward(self.model, self.data)
+
+                    # Publish the reset state.
+                    self.control_callback(None)
+
+                    self.response_queue.put("done")
+
+                elif request["type"] == "step":
+                    action = request["action"]
+                    num_steps = request["num_steps"]
+
+                    # Apply action on the first physics step.
+                    self.command_queue.put(action)
+
+                    for _ in range(num_steps):
+                        mujoco.mj_step(self.model, self.data)
+
+                    self.response_queue.put("done")
+
+                elif request["type"] == "close":
+                    break
+
+        elif self.show_viewer:
+            mujoco.viewer.launch(
+                self.model,
+                self.data,
+                show_left_ui=False,
+                show_right_ui=False
+            )
 
         else:
-            # Run headless simulation at real-time speed
+            # Original real-time simulation.
             last_step_time = 0
             while True:
                 while time.time() - last_step_time < self.model.opt.timestep:
                     time.sleep(0.0001)
+
                 last_step_time = time.time()
                 mujoco.mj_step(self.model, self.data)
 
+
 class MujocoEnv:
-    def __init__(self, render_images=True, show_viewer=True, show_images=False):
+    def __init__(self, render_images=True, show_viewer=True,
+             show_images=False, sync_mode=False):
         self.mjcf_path = 'models/stanford_tidybot/scene.xml'
         self.render_images = render_images
         self.show_viewer = show_viewer
         self.show_images = show_images
+        self.sync_mode = sync_mode
+        self.response_queue = mp.Queue(1) if sync_mode else None
         self.command_queue = mp.Queue(1)
 
         # Shared memory for state observations
@@ -339,7 +400,7 @@ class MujocoEnv:
 
     def physics_loop(self):
         # Create sim
-        sim = MujocoSim(self.mjcf_path, self.command_queue, self.shm_state, show_viewer=self.show_viewer)
+        sim = MujocoSim(self.mjcf_path, self.command_queue, self.shm_state, show_viewer=self.show_viewer, sync_mode=self.sync_mode, response_queue=self.response_queue)
 
         # Start render loop
         if self.render_images:
@@ -374,6 +435,11 @@ class MujocoEnv:
             cv.waitKey(1)
 
     def reset(self):
+        if self.sync_mode:
+            self.command_queue.put({"type": "reset"})
+            self.response_queue.get()  # Wait for reset to complete
+            return
+
         self.shm_state.initialized[:] = 0.0
         self.command_queue.put('reset')
 
@@ -393,6 +459,7 @@ class MujocoEnv:
         obs = {
             'base_pose': self.shm_state.base_pose.copy(),
             'arm_pos': self.shm_state.arm_pos.copy(),
+            'arm_q': self.shm_state.arm_q.copy(),
             'arm_quat': arm_quat,
             'gripper_pos': self.shm_state.gripper_pos.copy(),
         }
@@ -401,13 +468,25 @@ class MujocoEnv:
                 obs[f'{shm_image.camera_name}_image'] = shm_image.data.copy()
         return obs
 
-    def step(self, action):
+    def step(self, action, num_steps=50):
         # Note: We intentionally do not return obs here to prevent the policy from using outdated data
-        self.command_queue.put(action)
+        if self.sync_mode:
+            self.command_queue.put({
+                "type": "step",
+                "action": action,
+                "num_steps": num_steps
+            })
+            self.response_queue.get()  # Wait for step to complete
+        else:
+            self.command_queue.put(action)
 
     def close(self):
+        if self.sync_mode:
+            self.command_queue.put({"type": "close"})
+
         self.shm_state.close()
         self.shm_state.shm.unlink()
+
         if self.render_images:
             for shm_image in self.shm_images:
                 shm_image.close()
